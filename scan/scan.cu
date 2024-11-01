@@ -27,6 +27,37 @@ static inline int nextPow2(int n) {
     return n;
 }
 
+
+__global__
+void exclusive_scan_kernel(int* input, int N, int* result) {
+    
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    // printf("entering kernel with threadId: %d\n", index);
+    if (index < N) {
+        //Upsweep phase
+        for (int two_d=1; two_d < N/2; two_d*=2){
+            int two_dplus1 = two_d*2;
+            if (index % two_dplus1 ==0){
+                result[index+two_dplus1-1] += result[index+two_d-1];
+            }
+
+        }
+        if (index == N-1) {
+            result[N-1]=0; 
+        }
+        __syncthreads();
+
+        for (int two_d=N/2; two_d>=1; two_d/=2){
+            int two_dplus1 = two_d*2;
+            if ((N-(index)) % two_dplus1 ==0){
+                int t = result[index+two_d-1];
+                result[index+two_d-1] = result[index+two_dplus1-1];
+                result[index+two_dplus1-1] += t;
+            }
+            __syncthreads();
+        }
+    }
+}
 // exclusive_scan --
 //
 // Implementation of an exclusive scan on global memory array `input`,
@@ -53,7 +84,11 @@ void exclusive_scan(int* input, int N, int* result)
     // on the CPU.  Your implementation will need to make multiple calls
     // to CUDA kernel functions (that you must write) to implement the
     // scan.
-
+    const int blocks = (N + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+   
+    // run CUDA kernel. (notice the <<< >>> brackets indicating a CUDA
+    // kernel launch) Execution on the GPU occurs here.
+    exclusive_scan_kernel<<<blocks, THREADS_PER_BLOCK>>>(input,N, result);
 
 }
 
@@ -102,7 +137,16 @@ double cudaScan(int* inarray, int* end, int* resultarray)
     double endTime = CycleTimer::currentSeconds();
        
     cudaMemcpy(resultarray, device_result, (end - inarray) * sizeof(int), cudaMemcpyDeviceToHost);
-
+    printf("input array: ");
+    for (int i=0; i<N; i++){
+        printf("%d, ", inarray[i]);
+    }
+    printf("\n");
+    printf("output array: ");
+    for (int i=0; i<N; i++){
+        printf("%d, ", resultarray[i]);
+    }
+    printf("\n");
     double overallDuration = endTime - startTime;
     return overallDuration; 
 }

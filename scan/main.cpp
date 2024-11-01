@@ -24,7 +24,7 @@ void usage(const char* progname) {
 
 void cpu_exclusive_scan(int* start, int* end, int* output) {
 
-//#define PARALLEL 1
+#define PARALLEL 1
 #ifdef PARALLEL
 
     // note to students: this C code can be helpful when debugging the
@@ -121,7 +121,7 @@ int main(int argc, char** argv) {
     int* resultarray = new int[N];
     int* checkarray = new int[N];
 
-    if (input.compare("random") == 0) {
+    if (input.compare("not") == 0) {
 
         srand(time(NULL));
 
@@ -136,8 +136,10 @@ int main(int argc, char** argv) {
       
         // all one's test case - you may find this useful for debugging
         for(int i = 0; i < N; i++) {
-            inarray[i] = 1;
-            checkarray[i] = 1;
+            // inarray[i] = 1;
+            inarray[i] = i+1;
+            // checkarray[i] = 1;
+            checkarray[i] = i+1;
         }  
     }
 
@@ -167,6 +169,7 @@ int main(int argc, char** argv) {
         } 
 
         // validate results
+        printf("checkarray: ");
         for (int i = 0; i < N; i++) {
             if (checkarray[i] != resultarray[i]) {
                 fprintf(stderr,
@@ -175,7 +178,9 @@ int main(int argc, char** argv) {
                         i, resultarray[i], checkarray[i]);
                 exit(1);
             }
+            // printf("%d, ", checkarray[i]);
         }
+        printf("\n");
         printf("Scan outputs are correct!\n");
 	
     } else if (test.compare("find_repeats") == 0) { // Test find_repeats
