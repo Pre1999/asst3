@@ -24,7 +24,7 @@ void usage(const char* progname) {
 
 void cpu_exclusive_scan(int* start, int* end, int* output) {
 
-#define PARALLEL 1
+// #define PARALLEL 1
 #ifdef PARALLEL
 
     // note to students: this C code can be helpful when debugging the
@@ -137,9 +137,9 @@ int main(int argc, char** argv) {
         // all one's test case - you may find this useful for debugging
         for(int i = 0; i < N; i++) {
             // inarray[i] = 1;
-            inarray[i] = i+1;
+            inarray[i] = i/2;//i+1;
             // checkarray[i] = 1;
-            checkarray[i] = i+1;
+            checkarray[i] = i/2;//i+1;
         }  
     }
 
@@ -152,7 +152,7 @@ int main(int argc, char** argv) {
     if (test.compare("scan") == 0) { // test exclusive scan
       
         // run CUDA implementation
-        for (int i=0; i<3; i++) {
+        for (int i=0; i<1; i++) {
             if (useThrust)
                 cudaTime = std::min(cudaTime, cudaScanThrust(inarray, inarray+N, resultarray));
             else
@@ -169,7 +169,11 @@ int main(int argc, char** argv) {
         } 
 
         // validate results
-        printf("checkarray: ");
+        printf("checkarray: \n");
+        for (int i = 0; i < N; i++) {
+            printf("%d, ", checkarray[i]);
+        }
+        printf("\n\n");
         for (int i = 0; i < N; i++) {
             if (checkarray[i] != resultarray[i]) {
                 fprintf(stderr,
