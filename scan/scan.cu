@@ -76,14 +76,15 @@ void exclusive_scan(int* input, int N, int* result)
     // to CUDA kernel functions (that you must write) to implement the
     // scan.
     
-    int blocks = (N + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+    int num_threads;
+    int blocks;
    
     // run CUDA kernel. (notice the <<< >>> brackets indicating a CUDA
     // kernel launch) Execution on the GPU occurs here.
     int new_N =nextPow2(N);
     
     for (int two_d=1; two_d <= new_N/2; two_d*=2){
-        int num_threads = new_N/(2*two_d);
+        num_threads = new_N/(2*two_d);
         blocks = (num_threads + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
         exclusive_scan_kernel_upsweep<<<blocks, std::min(THREADS_PER_BLOCK, num_threads)>>>(input,new_N, result,two_d);
         cudaDeviceSynchronize();
@@ -91,9 +92,8 @@ void exclusive_scan(int* input, int N, int* result)
 
     cudaMemset(&result[new_N - 1], 0, sizeof(int));
 
-    blocks = (N + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
     for (int two_d=new_N/2; two_d>=1; two_d/=2){
-        int num_threads = new_N/(2*two_d);
+        num_threads = new_N/(2*two_d);
         blocks = (num_threads + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
         exclusive_scan_kernel_downsweep<<<blocks, std::min(THREADS_PER_BLOCK, num_threads)>>>(input,new_N, result,two_d);
         cudaDeviceSynchronize();
