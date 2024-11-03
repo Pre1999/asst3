@@ -1,5 +1,6 @@
 #include <stdio.h>
-
+#include <iostream>
+#include <fstream>
 #include <cuda.h>
 #include <cuda_runtime.h>
 
@@ -12,7 +13,7 @@
 
 #include "CycleTimer.h"
 
-#define THREADS_PER_BLOCK 256
+#define THREADS_PER_BLOCK 4
 
 
 // helper function to round an integer up to the next power of 2
@@ -308,26 +309,31 @@ int find_repeats(int* device_input, int length, int* device_output) {
     const int blocks = (length + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
     int *repeats_flags;
     int *prefix_sum;
-    int *num_repeats;
-    int *cpu_num_repeats = new int;
+    int cpu_num_repeats;
+    int N = nextPow2(length);
+
     cudaMalloc((void **)&repeats_flags, length * sizeof(int));
-    cudaMalloc((void **)&prefix_sum, length * sizeof(int));
-    cudaMalloc((void **)&num_repeats, sizeof(int));
+    cudaMalloc((void **)&prefix_sum, N * sizeof(int));
+    // cudaMalloc((void **)&num_repeats, sizeof(int));
 
     set_repeat_flags<<<blocks, THREADS_PER_BLOCK>>>(device_input,length, repeats_flags);
     cudaDeviceSynchronize();
     transfer_data_to_output<<<blocks, THREADS_PER_BLOCK>>>(repeats_flags, length, prefix_sum);
     cudaDeviceSynchronize();
-    exclusive_scan(repeats_flags, length, prefix_sum);
+    exclusive_scan(repeats_flags, N, prefix_sum);
     cudaDeviceSynchronize();
-    read_prefix_sum<<<blocks, THREADS_PER_BLOCK>>>(repeats_flags,prefix_sum, length, device_output);
+    read_prefix_sum<<<blocks, THREADS_PER_BLOCK>>>(repeats_flags, prefix_sum, length, device_output);
     cudaDeviceSynchronize();
-    read_last_index<<<1, 1>>>(length, prefix_sum, num_repeats);
-    cudaMemcpy(cpu_num_repeats, num_repeats, sizeof(int), cudaMemcpyDeviceToHost);
+
+    // read_last_index<<<1, 1>>>(length, prefix_sum, num_repeats);
+    // cudaMemcpy(cpu_num_repeats, num_repeats, sizeof(int), cudaMemcpyDeviceToHost);
+
+    cudaMemcpy(&cpu_num_repeats, &prefix_sum[length - 1], sizeof(int), cudaMemcpyDeviceToHost);
+
     cudaFree(repeats_flags);
     cudaFree(prefix_sum);
 
-    return *cpu_num_repeats; 
+    return cpu_num_repeats; 
 }
 
 
@@ -356,15 +362,24 @@ double cudaFindRepeats(int *input, int length, int *output, int *output_length) 
     // set output count and results array
     *output_length = result;
     cudaMemcpy(output, device_output, length * sizeof(int), cudaMemcpyDeviceToHost);
-    // printf("repeat input, then flags\n");
-    // for (int i=0; i<length; i++){
-    //     printf("%d, ", input[i]);
+    std::ofstream outFile("output.txt");
+
+    // Check if the file was opened successfully
+    if (!outFile.is_open()) {
+        std::cerr << "Error opening file!" << std::endl;
+        return 1;
+    }
+
+    // Write to the file instead of printing to console
+    // outFile << "repeat input, then flags\n";
+    // for (int i = 0; i < length; i++) {
+    //     outFile << input[i] << ", ";
     // }
-    // printf("\n");
-    // for (int i=0; i<length; i++){
-    //     printf("%d, ", output[i]);
+    // outFile << "\n";
+    // for (int i = 0; i < length; i++) {
+    //     outFile << output[i] << ", \n";
     // }
-    // printf("\n");
+    // outFile << "\n";
 
     cudaFree(device_input);
     cudaFree(device_output);
