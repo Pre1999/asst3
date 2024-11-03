@@ -121,7 +121,7 @@ int main(int argc, char** argv) {
     int* resultarray = new int[N];
     int* checkarray = new int[N];
 
-    if (input.compare("not") == 0) {
+    if (input.compare("random") == 0) {
 
         srand(time(NULL));
 
@@ -136,10 +136,8 @@ int main(int argc, char** argv) {
       
         // all one's test case - you may find this useful for debugging
         for(int i = 0; i < N; i++) {
-            // inarray[i] = 1;
-            inarray[i] = i/2;//i+1;
-            // checkarray[i] = 1;
-            checkarray[i] = i/2;//i+1;
+            inarray[i] = 1;
+            checkarray[i] = 1;
         }  
     }
 
@@ -152,7 +150,7 @@ int main(int argc, char** argv) {
     if (test.compare("scan") == 0) { // test exclusive scan
       
         // run CUDA implementation
-        for (int i=0; i<1; i++) {
+        for (int i=0; i<3; i++) {
             if (useThrust)
                 cudaTime = std::min(cudaTime, cudaScanThrust(inarray, inarray+N, resultarray));
             else
@@ -168,12 +166,6 @@ int main(int argc, char** argv) {
             printf("Student GPU time: %.3f ms\n", 1000.f * cudaTime);
         } 
 
-        // validate results
-        printf("checkarray: \n");
-        for (int i = 0; i < N; i++) {
-            printf("%d, ", checkarray[i]);
-        }
-        printf("\n\n");
         for (int i = 0; i < N; i++) {
             if (checkarray[i] != resultarray[i]) {
                 fprintf(stderr,
@@ -182,7 +174,6 @@ int main(int argc, char** argv) {
                         i, resultarray[i], checkarray[i]);
                 exit(1);
             }
-            // printf("%d, ", checkarray[i]);
         }
         printf("\n");
         printf("Scan outputs are correct!\n");

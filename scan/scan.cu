@@ -13,7 +13,7 @@
 
 #include "CycleTimer.h"
 
-#define THREADS_PER_BLOCK 4
+#define THREADS_PER_BLOCK 256
 
 
 // helper function to round an integer up to the next power of 2
@@ -31,101 +31,21 @@ static inline int nextPow2(int n) {
 
 __global__
 void exclusive_scan_kernel_upsweep(int* input, int N, int* result, int two_d) {
-    
-    int index = blockIdx.x * blockDim.x + threadIdx.x;
-    // printf("entering kernel with threadId: %d N: %d\n", index, N);
-    if (index < N) {
-        //Upsweep phase
-        int two_dplus1 = two_d*2;
-        if (index % two_dplus1 ==0){
-            result[index+two_dplus1-1] += result[index+two_d-1];
-        }
-        // __syncthreads();
-        // if (index ==0){
-        //     printf("upsweep input\n");
-        //     for (int i=0; i<N; i++){
-        //         printf("%d, ", input[i]);
-        //     }
-        //     printf("\n");
-        //     printf("upsweep ouput\n");
-        //     for (int i=0; i<N; i++){
-        //         printf("%d, ", result[i]);
-        //     }
-        //     printf("\n");
-        // }
+    int two_dplus1 = two_d*2;
+    int index = (blockIdx.x * blockDim.x + threadIdx.x) * two_dplus1 + two_dplus1;
+    if (index <= N) {
+        result[index-1] += result[index-two_d-1];
     }
 }
 __global__
 void exclusive_scan_kernel_downsweep(int* input, int N, int* result, int two_d) {
 
-    int index = blockIdx.x * blockDim.x + threadIdx.x;
-    if (index < N) {
-
-        // if (index ==0){
-        //     printf("downsweep input\n");
-        //     for (int i=0; i<N; i++){
-        //         printf("%d, ", result[i]);
-        //     }
-        //     printf("\n");
-        // }
-        // printf("entering with index %d\n", index);
-        // __syncthreads();
-        int two_dplus1 = two_d*2;
-        if ((N-(index)) % two_dplus1 ==0){
-            int t = result[index+two_d-1];
-            result[index+two_d-1] = result[index+two_dplus1-1];
-            result[index+two_dplus1-1] += t;
-        }
-        // if (index ==0){
-        //     printf("downsweep ouput\n");
-        //     for (int i=0; i<N; i++){
-        //         printf("%d, ", result[i]);
-        //     }
-        //     printf("\n");
-        // }
-    }
-}
-__global__
-void exclusive_scan_zero_N(int N, int* result){
-    result[N-1] = 0;
-}
-
-__global__
-void read_last_index(int N, int* result, int* gpu_var){
-    *gpu_var = result[N-1];
-}
-
-__global__
-void transfer_data_to_output(int* input, int N, int*output){
-    int index = blockIdx.x * blockDim.x + threadIdx.x;
-    if (index < N) {
-        output[index] = input[index];
-    }
-}
-
-
-__global__
-void set_repeat_flags(int * input, int N, int* result){
-
-    int index = blockIdx.x * blockDim.x + threadIdx.x;
-    if (index < N-1) {
-        if (input[index]==input[index+1]){
-            result[index] = 1;
-        }
-        else{
-            result[index] = 0;
-        }
-    }
-}
-
-__global__
-void read_prefix_sum(int *repeats_flags, int *prefix_sum, int length, int * device_output){
-    int index = blockIdx.x * blockDim.x + threadIdx.x;
-    if (index < length) {
-        //TODO check if last thread is needed!!!!
-        if (repeats_flags[index]){
-            device_output[prefix_sum[index]] = index;
-        }
+    int two_dplus1 = two_d*2;
+    int index = (blockIdx.x * blockDim.x + threadIdx.x) * two_dplus1 + two_dplus1;
+    if (index <= N) {
+        int t = result[index-two_d-1];
+        result[index-two_d-1] = result[index-1];
+        result[index-1] += t;
     }
 }
 
@@ -156,40 +76,28 @@ void exclusive_scan(int* input, int N, int* result)
     // to CUDA kernel functions (that you must write) to implement the
     // scan.
     
-    const int blocks = (N + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+    int blocks = (N + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
    
     // run CUDA kernel. (notice the <<< >>> brackets indicating a CUDA
     // kernel launch) Execution on the GPU occurs here.
     int new_N =nextPow2(N);
-    // printf("value of %d : %d\n", N, new_N);
-    for (int two_d=1; two_d <= new_N/2; two_d*=2){
-        exclusive_scan_kernel_upsweep<<<blocks, THREADS_PER_BLOCK>>>(input,new_N, result,two_d);
-        cudaDeviceSynchronize();
-    }
-    exclusive_scan_zero_N<<<1, 1>>>(new_N, result);
-    cudaDeviceSynchronize();
-    for (int two_d=new_N/2; two_d>=1; two_d/=2){
-        exclusive_scan_kernel_downsweep<<<blocks, THREADS_PER_BLOCK>>>(input,new_N, result,two_d);
-        cudaDeviceSynchronize();
-    }
     
-    //debug////////////////
-    int* cpu_input = new int[N];
-    int* cpu_output = new int[N];
-    cudaMemcpy(cpu_input, input, N * sizeof(int), cudaMemcpyDeviceToHost);
-    cudaMemcpy(cpu_output, result, N * sizeof(int), cudaMemcpyDeviceToHost);
-    // printf("scan in, then scan out\n");
-    // for (int i=0; i<N; i++){
-    //     printf("%d, ", cpu_input[i]);
-    // }
-    // printf("\n");
-    // for (int i=0; i<N; i++){
-    //     printf("%d, ", cpu_output[i]);
-    // }
-    // printf("\n");
+    for (int two_d=1; two_d <= new_N/2; two_d*=2){
+        int num_threads = new_N/(2*two_d);
+        blocks = (num_threads + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+        exclusive_scan_kernel_upsweep<<<blocks, std::min(THREADS_PER_BLOCK, num_threads)>>>(input,new_N, result,two_d);
+        cudaDeviceSynchronize();
+    }
 
+    cudaMemset(&result[new_N - 1], 0, sizeof(int));
 
-    //debug////////////////
+    blocks = (N + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+    for (int two_d=new_N/2; two_d>=1; two_d/=2){
+        int num_threads = new_N/(2*two_d);
+        blocks = (num_threads + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+        exclusive_scan_kernel_downsweep<<<blocks, std::min(THREADS_PER_BLOCK, num_threads)>>>(input,new_N, result,two_d);
+        cudaDeviceSynchronize();
+    }
 
 }
 
@@ -238,16 +146,7 @@ double cudaScan(int* inarray, int* end, int* resultarray)
     double endTime = CycleTimer::currentSeconds();
        
     cudaMemcpy(resultarray, device_result, (end - inarray) * sizeof(int), cudaMemcpyDeviceToHost);
-    // printf("input array: ");
-    // for (int i=0; i<N; i++){
-    //     printf("%d, ", inarray[i]);
-    // }
-    // printf("\n");
-    // printf("output array: ");
-    // for (int i=0; i<N; i++){
-    //     printf("%d, ", resultarray[i]);
-    // }
-    // printf("\n");
+
     double overallDuration = endTime - startTime;
     return overallDuration; 
 }
@@ -285,6 +184,38 @@ double cudaScanThrust(int* inarray, int* end, int* resultarray) {
     return overallDuration; 
 }
 
+__global__
+void transfer_data_to_output(int* input, int N, int*output){
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index < N) {
+        output[index] = input[index];
+    }
+}
+
+
+__global__
+void set_repeat_flags(int * input, int N, int* result){
+
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index < N-1) {
+        if (input[index]==input[index+1]){
+            result[index] = 1;
+        }
+        else{
+            result[index] = 0;
+        }
+    }
+}
+
+__global__
+void read_prefix_sum(int *repeats_flags, int *prefix_sum, int length, int * device_output){
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index < length) {
+        if (repeats_flags[index]){
+            device_output[prefix_sum[index]] = index;
+        }
+    }
+}
 
 // find_repeats --
 //
@@ -314,7 +245,6 @@ int find_repeats(int* device_input, int length, int* device_output) {
 
     cudaMalloc((void **)&repeats_flags, length * sizeof(int));
     cudaMalloc((void **)&prefix_sum, N * sizeof(int));
-    // cudaMalloc((void **)&num_repeats, sizeof(int));
 
     set_repeat_flags<<<blocks, THREADS_PER_BLOCK>>>(device_input,length, repeats_flags);
     cudaDeviceSynchronize();
@@ -324,9 +254,6 @@ int find_repeats(int* device_input, int length, int* device_output) {
     cudaDeviceSynchronize();
     read_prefix_sum<<<blocks, THREADS_PER_BLOCK>>>(repeats_flags, prefix_sum, length, device_output);
     cudaDeviceSynchronize();
-
-    // read_last_index<<<1, 1>>>(length, prefix_sum, num_repeats);
-    // cudaMemcpy(cpu_num_repeats, num_repeats, sizeof(int), cudaMemcpyDeviceToHost);
 
     cudaMemcpy(&cpu_num_repeats, &prefix_sum[length - 1], sizeof(int), cudaMemcpyDeviceToHost);
 
@@ -362,24 +289,6 @@ double cudaFindRepeats(int *input, int length, int *output, int *output_length) 
     // set output count and results array
     *output_length = result;
     cudaMemcpy(output, device_output, length * sizeof(int), cudaMemcpyDeviceToHost);
-    std::ofstream outFile("output.txt");
-
-    // Check if the file was opened successfully
-    if (!outFile.is_open()) {
-        std::cerr << "Error opening file!" << std::endl;
-        return 1;
-    }
-
-    // Write to the file instead of printing to console
-    // outFile << "repeat input, then flags\n";
-    // for (int i = 0; i < length; i++) {
-    //     outFile << input[i] << ", ";
-    // }
-    // outFile << "\n";
-    // for (int i = 0; i < length; i++) {
-    //     outFile << output[i] << ", \n";
-    // }
-    // outFile << "\n";
 
     cudaFree(device_input);
     cudaFree(device_output);
