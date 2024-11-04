@@ -338,11 +338,11 @@ shadePixel(int circleIndex, float2 pixelCenter, float3 p, float4* imagePtr) {
     float pixelDist = diffX * diffX + diffY * diffY;
 
     float rad = cuConstRendererParams.radius[circleIndex];;
-    float maxDist = rad * rad;
+    // float maxDist = rad * rad;
 
     // circle does not contribute to the image
-    if (pixelDist > maxDist)
-        return;
+    // if (pixelDist > maxDist)
+    //     return;
 
     float3 rgb;
     float alpha;
@@ -614,8 +614,8 @@ CudaRenderer::setup() {
     cudaMalloc(&cudaDeviceImageData, sizeof(float) * 4 * image->width * image->height);
 
     
-    cudaCheckError(cudaMalloc(&cudaDeviceHashmap, sizeof(int) * numCircles * image->width * image->height));
-    cudaCheckError(cudaMalloc(&cudaDevice_numCircles_per_particle, sizeof(int) * image->width * image->height));
+    // cudaCheckError(cudaMalloc(&cudaDeviceHashmap, sizeof(int) * numCircles * image->width * image->height));
+    // cudaCheckError(cudaMalloc(&cudaDevice_numCircles_per_particle, sizeof(int) * image->width * image->height));
 
     cudaMemcpy(cudaDevicePosition, position, sizeof(float) * 3 * numCircles, cudaMemcpyHostToDevice);
     cudaMemcpy(cudaDeviceVelocity, velocity, sizeof(float) * 3 * numCircles, cudaMemcpyHostToDevice);
@@ -739,7 +739,7 @@ __global__ void print_kernel(int *cudaDeviceHashmap, int *cudaDevice_numCircles_
 
 }
 
-__global__ void kernelCreateDpendencyStructure(int *cudaDeviceHashmap, int *cudaDevice_numCircles_per_particle) {
+__global__ void kernelCreateDpendencyStructure() {
     int pixelX = blockIdx.x * blockDim.x + threadIdx.x;
     int pixelY = blockIdx.y * blockDim.y + threadIdx.y;
 
@@ -758,6 +758,7 @@ __global__ void kernelCreateDpendencyStructure(int *cudaDeviceHashmap, int *cuda
 
     float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(pixelX) + 0.5f),
                                                  invHeight * (static_cast<float>(pixelY) + 0.5f));
+    float4* imgPtr = (float4*)(&cuConstRendererParams.imageData[4 * (pixelY * imagewidth + pixelX)]); 
 
     int pixel_inside_circle_index = 0;
 
@@ -783,14 +784,16 @@ __global__ void kernelCreateDpendencyStructure(int *cudaDeviceHashmap, int *cuda
         if (pixelDist > maxDist)
             continue;
         
+        shadePixel(circleIndex, pixelCenterNorm, p, imgPtr);
+
         // if(flattened_index == 8) {
         //     printf("circleIndex : %d\n", circleIndex);
         //     printf("Written into : %d \n", flattened_index * cuConstRendererParams.numCircles + pixel_inside_circle_index);
         // }
         // If the thread comes to this portion, it means the pixel is inside the circle - Record the circle in the data structure
-        cudaDeviceHashmap[flattened_index * cuConstRendererParams.numCircles + pixel_inside_circle_index] = circleIndex;
-        pixel_inside_circle_index++;
-        cudaDevice_numCircles_per_particle[flattened_index] = pixel_inside_circle_index;
+        // cudaDeviceHashmap[flattened_index * cuConstRendererParams.numCircles + pixel_inside_circle_index] = circleIndex;
+        // pixel_inside_circle_index++;
+        // cudaDevice_numCircles_per_particle[flattened_index] = pixel_inside_circle_index;
     }
 }
 
@@ -818,8 +821,9 @@ CudaRenderer::render() {
     dim3 gridDim(
         (image->width + blockDim.x - 1) / blockDim.x,
         (image->height + blockDim.y - 1) / blockDim.y);
-    kernelCreateDpendencyStructure<<<gridDim, blockDim>>>(cudaDeviceHashmap, cudaDevice_numCircles_per_particle);
-    cudaDeviceSynchronize();
+    // kernelCreateDpendencyStructure<<<gridDim, blockDim>>>(cudaDeviceHashmap, cudaDevice_numCircles_per_particle);
+    kernelCreateDpendencyStructure<<<gridDim, blockDim>>>();
+    cudaCheckError(cudaDeviceSynchronize());
     // print_kernel<<<1, 1>>>(cudaDeviceHashmap, cudaDevice_numCircles_per_particle);
     // cudaDeviceSynchronize();
     // cudaMemcpy(cudaDevicePosition, cudaDeviceHashmap, sizeof(int) * 3 * numCircles, cudaMemcpyDeviceToHost);
@@ -828,6 +832,6 @@ CudaRenderer::render() {
 
     // 256 threads per block is a healthy number
 
-    kernelRenderCircles<<<gridDim, blockDim>>>(cudaDeviceHashmap, cudaDevice_numCircles_per_particle);
-    cudaDeviceSynchronize();
+    // kernelRenderCircles<<<gridDim, blockDim>>>(cudaDeviceHashmap, cudaDevice_numCircles_per_particle);
+    // cudaCheckError(cudaDeviceSynchronize());
 }
