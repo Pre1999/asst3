@@ -300,7 +300,15 @@ RefRenderer::shadePixel(
     // circle does not contribute to the image
     if (pixelDist > maxDist)
         return;
-
+    // printf("Circle Index : %d \n", circleIndex);
+    // printf("PX : %f \n", px);
+    // printf("PY : %f \n", py);
+    // printf("pixelCenterX : %f \n", pixelCenterX);
+    // printf("pixelCenterY : %f \n", pixelCenterY);
+    // printf("Pixel Dist : %f \n", pixelDist);
+    // printf("Max Dist : %f \n", maxDist);
+    // printf("\n\n");
+    
     float colR, colG, colB;
     float alpha;
 
@@ -403,6 +411,7 @@ RefRenderer::render() {
                 // to calling shadePixel.
                 float pixelCenterNormX = invWidth * (static_cast<float>(pixelX) + 0.5f);
                 float pixelCenterNormY = invHeight * (static_cast<float>(pixelY) + 0.5f);
+                // printf("Pixel : %d \n", pixelY*image->width + pixelX);
                 shadePixel(circleIndex, pixelCenterNormX, pixelCenterNormY, px, py, pz, imgPtr);
                 imgPtr += 4;
             }

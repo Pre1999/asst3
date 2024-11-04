@@ -27,6 +27,11 @@ private:
     float* cudaDeviceRadius;
     float* cudaDeviceImageData;
 
+
+    // int* debug_map;
+    int* cudaDeviceHashmap;
+    int* cudaDevice_numCircles_per_particle;
+
 public:
 
     CudaRenderer();
