@@ -53,7 +53,7 @@ public:
 
     void render();
 
-    void shadePixel(
+    float4 shadePixel(
         int circleIndex,
         float pixelCenterX, float pixelCenterY,
         float px, float py, float pz,

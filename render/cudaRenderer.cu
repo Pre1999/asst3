@@ -21,8 +21,10 @@
 
 #include "circleBoxTest.cu_inl"
 
+#include "cycleTimer.h"
+
 #define THREADS_PER_BLOCK 256
-#define GRID_SIZE 64
+#define GRID_SIZE 128
 
 #define cudaCheckError(ans) { cudaAssert((ans), __FILE__, __LINE__); }
 inline void cudaAssert(cudaError_t code, const char *file, int line, bool abort=true)
@@ -341,7 +343,7 @@ __global__ void kernelAdvanceSnowflake() {
 // given a pixel and a circle, determines the contribution to the
 // pixel from the circle.  Update of the image is done in this
 // function.  Called by kernelRenderCircles()
-__device__ __inline__ void
+__device__ __inline__ float4
 shadePixel(int circleIndex, float2 pixelCenter, float3 p, float4* imagePtr) {
 
     float diffX = p.x - pixelCenter.x;
@@ -397,8 +399,9 @@ shadePixel(int circleIndex, float2 pixelCenter, float3 p, float4* imagePtr) {
     newColor.z = alpha * rgb.z + oneMinusAlpha * existingColor.z;
     newColor.w = alpha + existingColor.w;
 
+    return newColor;
     // global memory write
-    *imagePtr = newColor;
+    
 
     // END SHOULD-BE-ATOMIC REGION
 }
@@ -687,9 +690,9 @@ CudaRenderer::setup() {
 
     cudaMemcpyToSymbol(cuConstColorRamp, lookupTable, sizeof(float) * 3 * COLOR_MAP_SIZE);
 
-    size_t free, total;
-    cudaMemGetInfo(&free, &total);
-    printf("--->Free memory: %zu bytes\n", free);
+    // size_t free, total;
+    // cudaMemGetInfo(&free, &total);
+    // printf("--->Free memory: %zu bytes\n", free);
 
 }
 
@@ -898,7 +901,7 @@ __global__ void kernelCreate_NumCircles_per_Grid(int* cudaDevice_Circle_Cell_Has
 
 }
 
-__global__ void kernelCreateDpendencyStructure(int* cudaDevice_Cell_Circle_Hashmap_condensed) {
+__global__ void kernelRenderCircles(int* cudaDevice_Cell_Circle_Hashmap_condensed) {
     int pixelX = blockIdx.x * blockDim.x + threadIdx.x;
     int pixelY = blockIdx.y * blockDim.y + threadIdx.y;
 
@@ -908,6 +911,7 @@ __global__ void kernelCreateDpendencyStructure(int* cudaDevice_Cell_Circle_Hashm
     if (pixelX >= imagewidth || pixelY >= imageheight)
         return;
 
+    bool write_flag = false;
     // int flattened_index = pixelY * imagewidth + pixelX;
 
     // printf("Flattened Index : %d \n", flattened_index);
@@ -918,6 +922,7 @@ __global__ void kernelCreateDpendencyStructure(int* cudaDevice_Cell_Circle_Hashm
     float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(pixelX) + 0.5f),
                                                  invHeight * (static_cast<float>(pixelY) + 0.5f));
     float4* imgPtr = (float4*)(&cuConstRendererParams.imageData[4 * (pixelY * imagewidth + pixelX)]); 
+    float4 newColor = *imgPtr; 
 
     int numCellsX = cuConstRendererParams.imageWidth / GRID_SIZE;
     int numCellsY = cuConstRendererParams.imageHeight / GRID_SIZE;
@@ -954,8 +959,10 @@ __global__ void kernelCreateDpendencyStructure(int* cudaDevice_Cell_Circle_Hashm
         
         if (pixelDist > maxDist)
             continue;
+
+        write_flag = true;
         
-        shadePixel(circleIndex, pixelCenterNorm, p, imgPtr);
+        newColor = shadePixel(circleIndex, pixelCenterNorm, p, &newColor);
 
         // if(flattened_index == 8) {
         //     printf("circleIndex : %d\n", circleIndex);
@@ -965,6 +972,85 @@ __global__ void kernelCreateDpendencyStructure(int* cudaDevice_Cell_Circle_Hashm
         // cudaDeviceHashmap[flattened_index * cuConstRendererParams.numCircles + pixel_inside_circle_index] = circleIndex;
         // pixel_inside_circle_index++;
         // cudaDevice_numCircles_per_particle[flattened_index] = pixel_inside_circle_index;
+    }
+
+    if (write_flag){
+        *imgPtr = newColor;
+    }
+}
+
+__global__ void kernelRenderCircles_lesserCircles() {
+    int pixelX = blockIdx.x * blockDim.x + threadIdx.x;
+    int pixelY = blockIdx.y * blockDim.y + threadIdx.y;
+
+    int imagewidth = cuConstRendererParams.imageWidth;
+    int imageheight = cuConstRendererParams.imageHeight;
+
+    if (pixelX >= imagewidth || pixelY >= imageheight)
+        return;
+
+    bool write_flag = false;
+    // int flattened_index = pixelY * imagewidth + pixelX;
+
+    // printf("Flattened Index : %d \n", flattened_index);
+
+    float invWidth = 1.f / imagewidth;
+    float invHeight = 1.f / imageheight;
+
+    float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(pixelX) + 0.5f),
+                                                 invHeight * (static_cast<float>(pixelY) + 0.5f));
+    float4* imgPtr = (float4*)(&cuConstRendererParams.imageData[4 * (pixelY * imagewidth + pixelX)]); 
+    float4 newColor = *imgPtr; 
+
+    int numCellsX = cuConstRendererParams.imageWidth / GRID_SIZE;
+    int numCellsY = cuConstRendererParams.imageHeight / GRID_SIZE;
+
+    int gridX = pixelX / GRID_SIZE;
+    int gridY = pixelY / GRID_SIZE;
+    int flattened_gridIndex = gridY * numCellsX + gridX;
+    
+    // int pixel_inside_circle_index = 0;
+
+    for (int i=0; i < cuConstRendererParams.numCircles; i++) {
+        
+        int circleIndex = i;
+
+        float3 p = *(float3*)(&cuConstRendererParams.position[circleIndex * 3]);
+        float  rad = cuConstRendererParams.radius[circleIndex];
+        float maxDist = rad * rad;
+
+        float diffX = p.x - pixelCenterNorm.x;
+        float diffY = p.y - pixelCenterNorm.y;
+        float pixelDist = diffX * diffX + diffY * diffY;
+
+        // if(flattened_index == 8) {
+        //     printf("PX : %f \n", p.x);
+        //     printf("PY : %f \n", p.y);
+        //     printf("pixelCenterX : %f \n", pixelCenterNorm.x);
+        //     printf("pixelCenterY : %f \n", pixelCenterNorm.y);
+        //     printf("Pixel Dist : %f \n", pixelDist);
+        //     printf("Max Dist : %f \n", maxDist);
+        // }
+        
+        if (pixelDist > maxDist)
+            continue;
+
+        write_flag = true;
+        
+        newColor = shadePixel(circleIndex, pixelCenterNorm, p, &newColor);
+
+        // if(flattened_index == 8) {
+        //     printf("circleIndex : %d\n", circleIndex);
+        //     printf("Written into : %d \n", flattened_index * cuConstRendererParams.numCircles + pixel_inside_circle_index);
+        // }
+        // If the thread comes to this portion, it means the pixel is inside the circle - Record the circle in the data structure
+        // cudaDeviceHashmap[flattened_index * cuConstRendererParams.numCircles + pixel_inside_circle_index] = circleIndex;
+        // pixel_inside_circle_index++;
+        // cudaDevice_numCircles_per_particle[flattened_index] = pixel_inside_circle_index;
+    }
+
+    if (write_flag){
+        *imgPtr = newColor;
     }
 }
 
@@ -988,9 +1074,9 @@ CudaRenderer::render() {
 
     // Launch Kernel to build the Pixel--Circle Hashmap  
     // { PIXEL : [Circle1, Circle2, ...] }
-    size_t free, total;
-    cudaMemGetInfo(&free, &total);
-    printf("->Free memory: %zu bytes\n", free);
+    // size_t free, total;
+    // cudaMemGetInfo(&free, &total);
+    // printf("->Free memory: %zu bytes\n", free);
 
     int numGrids = (image->height / GRID_SIZE) * (image->width / GRID_SIZE);
 
@@ -1009,50 +1095,113 @@ CudaRenderer::render() {
     int num_threads = std::min(THREADS_PER_BLOCK, numCircles);
     int blocks = (numCircles + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
 
-    // Creates a Circle to Cell Hashmap --> {Circle : [G0, G1, ..., Gn]}
-    kernelCreate_Circle_Cell_Mapping<<<blocks, num_threads>>>(cudaDevice_Circle_Cell_Hashmap);
-    cudaCheckError(cudaDeviceSynchronize());
+    if (numCircles > 15) {
 
-    // print_kernel_circle_cell<<<1, 1>>>(cudaDevice_Circle_Cell_Hashmap);
-    // cudaDeviceSynchronize();
-
-    // Inverts the Hashmap --> {Grid : [C0, C1, ..., Cn]}
-    kernelCreate_Cell_Circle_Mapping<<<blocks, num_threads>>>(cudaDevice_Circle_Cell_Hashmap, cudaDevice_Cell_Circle_Hashmap);
-    cudaCheckError(cudaDeviceSynchronize());
-
-    // print_kernel_cell_circle<<<1, 1>>>(cudaDevice_Cell_Circle_Hashmap);
-    // cudaDeviceSynchronize();
-
-    int numCellsX = (image->width / GRID_SIZE);
-    int numCellsY = (image->height / GRID_SIZE);
-
-    // Exclusive Scan on {GRID : [C0, C1, ..., Cn]} Hashmap to determine where to place the circle index in the condensed hashmap
-    for(int i=0; i < numCellsX * numCellsY; i++) {
-        // Input => {Grid : [C0, C1, ..., Cn]}
-        thrust::device_ptr<int> d_input_start(cudaDevice_Cell_Circle_Hashmap + i * numCircles);
-        // Reusing "cudaDevice_Circle_Cell_Hashmap"
-        thrust::device_ptr<int> d_output_start(cudaDevice_Circle_Cell_Hashmap + i * numCircles);
-        thrust::exclusive_scan(d_input_start, d_input_start + numCircles, d_output_start);
+        // Creates a Circle to Cell Hashmap --> {Circle : [G0, G1, ..., Gn]}
+        double startTime1 = CycleTimer::currentSeconds();
+        kernelCreate_Circle_Cell_Mapping<<<blocks, num_threads>>>(cudaDevice_Circle_Cell_Hashmap);
         cudaCheckError(cudaDeviceSynchronize());
+        double endTime1 = CycleTimer::currentSeconds();
+        printf( " \n ");
+        printf("kernelCreate_Circle_Cell_Mapping -- Time : %f \n", endTime1 - startTime1);
+
+        // print_kernel_circle_cell<<<1, 1>>>(cudaDevice_Circle_Cell_Hashmap);
+        // cudaDeviceSynchronize();
+
+        // Inverts the Hashmap --> {Grid : [C0, C1, ..., Cn]}
+        double startTime2 = CycleTimer::currentSeconds();
+        kernelCreate_Cell_Circle_Mapping<<<blocks, num_threads>>>(cudaDevice_Circle_Cell_Hashmap, cudaDevice_Cell_Circle_Hashmap);
+        cudaCheckError(cudaDeviceSynchronize());
+        double endTime2 = CycleTimer::currentSeconds();
+
+        printf("kernelCreate_Cell_Circle_Mapping -- Time : %f \n", endTime2 - startTime2);
+
+        // print_kernel_cell_circle<<<1, 1>>>(cudaDevice_Cell_Circle_Hashmap);
+        // cudaDeviceSynchronize();
+
+        int numCellsX = (image->width / GRID_SIZE);
+        int numCellsY = (image->height / GRID_SIZE);
+
+        // Exclusive Scan on {GRID : [C0, C1, ..., Cn]} Hashmap to determine where to place the circle index in the condensed hashmap
+        double startTime3 = CycleTimer::currentSeconds();
+        // for(int i=0; i < numCellsX * numCellsY; i++) {
+        //     // Input => {Grid : [C0, C1, ..., Cn]}
+        //     thrust::device_ptr<int> d_input_start(cudaDevice_Cell_Circle_Hashmap + i * numCircles);
+        //     // Reusing "cudaDevice_Circle_Cell_Hashmap"
+        //     thrust::device_ptr<int> d_output_start(cudaDevice_Circle_Cell_Hashmap + i * numCircles);
+        //     thrust::exclusive_scan(d_input_start, d_input_start + numCircles, d_output_start);
+        // }
+        // cudaCheckError(cudaDeviceSynchronize());
+        const int NUM_STREAMS = 1; // Adjust based on your hardware and workload
+        cudaStream_t streams[NUM_STREAMS];
+        for (int i = 0; i < NUM_STREAMS; i++) {
+            cudaStreamCreate(&streams[i]);
+        }
+
+        int cellsPerStream = (numCellsX * numCellsY + NUM_STREAMS - 1) / NUM_STREAMS;
+
+        for (int streamIdx = 0; streamIdx < NUM_STREAMS; streamIdx++) {
+            int startCell = streamIdx * cellsPerStream;
+            int endCell = min((streamIdx + 1) * cellsPerStream, numCellsX * numCellsY);
+
+            for (int i = startCell; i < endCell; i++) {
+                thrust::device_ptr<int> d_input_start(cudaDevice_Cell_Circle_Hashmap + i * numCircles);
+                thrust::device_ptr<int> d_output_start(cudaDevice_Circle_Cell_Hashmap + i * numCircles);
+
+                // Use CUDA policy to specify the stream
+                auto policy = thrust::cuda::par.on(streams[streamIdx]);
+                thrust::exclusive_scan(policy, d_input_start, d_input_start + numCircles, d_output_start);
+            }
+        }
+
+        // Optional: Wait for all streams to complete
+        for (int i = 0; i < NUM_STREAMS; i++) {
+            cudaStreamSynchronize(streams[i]);
+        }
+
+        // Clean up streams
+        for (int i = 0; i < NUM_STREAMS; i++) {
+            cudaStreamDestroy(streams[i]);
+        }
+        double endTime3 = CycleTimer::currentSeconds();
+
+        printf("exclusive_scan -- Time : %f \n", endTime3 - startTime3);
+
+        // print_kernel_cell_circle<<<1, 1>>>(cudaDevice_Circle_Cell_Hashmap);
+        // cudaCheckError(cudaDeviceSynchronize());
+
+        double startTime4 = CycleTimer::currentSeconds();
+        kernelCreate_Condensed_Hashmap<<<blocks, num_threads>>>(cudaDevice_Circle_Cell_Hashmap, cudaDevice_Cell_Circle_Hashmap, cudaDevice_Cell_Circle_Hashmap_condensed);
+        cudaCheckError(cudaDeviceSynchronize());
+        double endTime4 = CycleTimer::currentSeconds();
+
+        printf("kernelCreate_Condensed_Hashmap -- Time : %f \n", endTime4 - startTime4);
+
+        // num_threads = std::min(THREADS_PER_BLOCK, numGrids);
+        // blocks = (numGrids + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+        
+        // kernelCreate_NumCircles_per_Grid<<<blocks, num_threads>>>(cudaDevice_Circle_Cell_Hashmap, cudaDevice_numGrids);
+        // cudaCheckError(cudaDeviceSynchronize());
+
+        // print_kernel_condensed<<<1, 1>>>(cudaDevice_Cell_Circle_Hashmap_condensed, cudaDevice_numGrids);
+        // cudaCheckError(cudaDeviceSynchronize());
+
+        double startTime5 = CycleTimer::currentSeconds();
+        kernelRenderCircles<<<gridDim, blockDim>>>(cudaDevice_Cell_Circle_Hashmap_condensed);
+        cudaCheckError(cudaDeviceSynchronize());
+        double endTime5 = CycleTimer::currentSeconds();
+
+        printf("kernelRenderCircles -- Time : %f \n", endTime5 - startTime5);
+        printf( " \n ");
+    } else {
+        double startTime5 = CycleTimer::currentSeconds();
+        kernelRenderCircles_lesserCircles<<<gridDim, blockDim>>>();
+        cudaCheckError(cudaDeviceSynchronize());
+        double endTime5 = CycleTimer::currentSeconds();
+        printf( " \n ");
+        printf("kernelRenderCircles_lesserCircles -- Time : %f \n", endTime5 - startTime5);
+        printf( " \n ");
     }
-
-    // print_kernel_cell_circle<<<1, 1>>>(cudaDevice_Circle_Cell_Hashmap);
-    // cudaCheckError(cudaDeviceSynchronize());
-
-    kernelCreate_Condensed_Hashmap<<<blocks, num_threads>>>(cudaDevice_Circle_Cell_Hashmap, cudaDevice_Cell_Circle_Hashmap, cudaDevice_Cell_Circle_Hashmap_condensed);
-    cudaCheckError(cudaDeviceSynchronize());
-
-    // num_threads = std::min(THREADS_PER_BLOCK, numGrids);
-    // blocks = (numGrids + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
-    
-    // kernelCreate_NumCircles_per_Grid<<<blocks, num_threads>>>(cudaDevice_Circle_Cell_Hashmap, cudaDevice_numGrids);
-    // cudaCheckError(cudaDeviceSynchronize());
-
-    // print_kernel_condensed<<<1, 1>>>(cudaDevice_Cell_Circle_Hashmap_condensed, cudaDevice_numGrids);
-    // cudaCheckError(cudaDeviceSynchronize());
-
-    kernelCreateDpendencyStructure<<<gridDim, blockDim>>>(cudaDevice_Cell_Circle_Hashmap_condensed);
-    cudaCheckError(cudaDeviceSynchronize());
 
     // print_kernel<<<1, 1>>>(cudaDeviceHashmap, cudaDevice_numCircles_per_particle);
     // cudaDeviceSynchronize();
