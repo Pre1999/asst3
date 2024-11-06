@@ -29,8 +29,10 @@ private:
 
 
     // int* debug_map;
-    int* cudaDeviceHashmap;
-    int* cudaDevice_numCircles_per_particle;
+    int* cudaDevice_Circle_Cell_Hashmap;
+    int* cudaDevice_Cell_Circle_Hashmap;
+    
+    // int* cudaDevice_numC;
 
 public:
 
