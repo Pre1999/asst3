@@ -938,10 +938,7 @@ __global__ void kernelRenderCircles(int* cudaDevice_Cell_Circle_Hashmap_condense
 
     bool write_flag = false;
 
-    // extern __shared__ float sharedArray[];
-    // int flattened_index = pixelY * imagewidth + pixelX;
-
-    // printf("Flattened Index : %d \n", flattened_index);
+    // extern __shared__ int sharedArray[];
 
     float invWidth = 1.f / imagewidth;
     float invHeight = 1.f / imageheight;
@@ -958,13 +955,25 @@ __global__ void kernelRenderCircles(int* cudaDevice_Cell_Circle_Hashmap_condense
     int gridY = pixelY / GRID_SIZE;
     int flattened_gridIndex = gridY * numCellsX + gridX;
     
-    // int pixel_inside_circle_index = 0;
+    int flattened_threadIdx = threadIdx.y * blockDim.x + threadIdx.x;
+    int numCircles_in_grid = cudaDevice_condensed_Hashmap_endIdx[flattened_gridIndex] - cudaDevice_condensed_Hashmap_startIdx[flattened_gridIndex];
+    // for(int i=0; i<numCircles_in_grid; i+=THREADS_PER_BLOCK) {
+    //     // if(flattened_threadIdx == 0 && pixelX == 0 && pixelY == 0){
+    //     //     printf("Here : %d | %d \n", i, numCircles_in_grid);
+    //     // }
+    //     if((i + flattened_threadIdx) < numCircles_in_grid){
+    //         sharedArray[i + flattened_threadIdx] = cudaDevice_Cell_Circle_Hashmap_condensed[i + flattened_threadIdx + cudaDevice_condensed_Hashmap_startIdx[flattened_gridIndex]];
+    //     }
+    // }
+    // __syncthreads();
 
+    // for (int i=0; i < numCircles_in_grid; i++) {
     for (int i=cudaDevice_condensed_Hashmap_startIdx[flattened_gridIndex]; i < cudaDevice_condensed_Hashmap_endIdx[flattened_gridIndex]; i++) {
 
         // if(i!=0 && cudaDevice_Cell_Circle_Hashmap_condensed[flattened_gridIndex * cuConstRendererParams.numCircles + i] <= cudaDevice_Cell_Circle_Hashmap_condensed[flattened_gridIndex * cuConstRendererParams.numCircles + i-1])
         //     break;
         
+        // int circleIndex = sharedArray[i];
         int circleIndex = cudaDevice_Cell_Circle_Hashmap_condensed[i];
 
         float3 p = *(float3*)(&cuConstRendererParams.position[circleIndex * 3]);
@@ -989,7 +998,54 @@ __global__ void kernelRenderCircles(int* cudaDevice_Cell_Circle_Hashmap_condense
 
         write_flag = true;
         
-        newColor = shadePixel(circleIndex, pixelCenterNorm, p, &newColor);
+        // newColor = shadePixel(circleIndex, pixelCenterNorm, p, &newColor);
+
+        // float maxDist = rad * rad;
+
+        // circle does not contribute to the image
+        // if (pixelDist > maxDist)
+        //     return;
+
+        float3 rgb;
+        float alpha;
+
+        // there is a non-zero contribution.  Now compute the shading value
+
+        // suggestion: This conditional is in the inner loop.  Although it
+        // will evaluate the same for all threads, there is overhead in
+        // setting up the lane masks etc to implement the conditional.  It
+        // would be wise to perform this logic outside of the loop next in
+        // kernelRenderCircles.  (If feeling good about yourself, you
+        // could use some specialized template magic).
+        // if (cuConstRendererParams.sceneName == SNOWFLAKES || cuConstRendererParams.sceneName == SNOWFLAKES_SINGLE_FRAME) {
+
+        //     const float kCircleMaxAlpha = .5f;
+        //     const float falloffScale = 4.f;
+
+        //     float normPixelDist = sqrt(pixelDist) / rad;
+        //     rgb = lookupColor(normPixelDist);
+
+        //     float maxAlpha = .6f + .4f * (1.f-p.z);
+        //     maxAlpha = kCircleMaxAlpha * fmaxf(fminf(maxAlpha, 1.f), 0.f); // kCircleMaxAlpha * clamped value
+        //     alpha = maxAlpha * exp(-1.f * falloffScale * normPixelDist * normPixelDist);
+
+        // } else {
+            // simple: each circle has an assigned color
+            int index3 = 3 * circleIndex;
+            rgb = *(float3*)&(cuConstRendererParams.color[index3]);
+            alpha = .5f;
+        // }
+
+        float oneMinusAlpha = 1.f - alpha;
+
+        // BEGIN SHOULD-BE-ATOMIC REGION
+        // global memory read
+
+        float4 existingColor = newColor;
+        newColor.x = alpha * rgb.x + oneMinusAlpha * existingColor.x;
+        newColor.y = alpha * rgb.y + oneMinusAlpha * existingColor.y;
+        newColor.z = alpha * rgb.z + oneMinusAlpha * existingColor.z;
+        newColor.w = alpha + existingColor.w;
 
         // if(flattened_index == 8) {
         //     printf("circleIndex : %d\n", circleIndex);
@@ -1217,6 +1273,8 @@ CudaRenderer::render() {
         // cudaCheckError(cudaDeviceSynchronize());
 
         double startTime5 = CycleTimer::currentSeconds();
+        // int sharedMemSize = 700 * sizeof(int);
+        // kernelRenderCircles<<<gridDim, blockDim, sharedMemSize>>>(cudaDevice_Cell_Circle_Hashmap_condensed, cudaDevice_condensed_Hashmap_startIdx, cudaDevice_condensed_Hashmap_endIdx);
         kernelRenderCircles<<<gridDim, blockDim>>>(cudaDevice_Cell_Circle_Hashmap_condensed, cudaDevice_condensed_Hashmap_startIdx, cudaDevice_condensed_Hashmap_endIdx);
         cudaCheckError(cudaDeviceSynchronize());
         double endTime5 = CycleTimer::currentSeconds();
