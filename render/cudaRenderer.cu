@@ -457,69 +457,35 @@ shadePixel(int circleIndex, float2 pixelCenter, float3 p, float4* imagePtr) {
 // --------------------------------------------------------------- Original Code ---------------------------------------------------------------
 
 // --------------------------------------------------------------- Modified Code ---------------------------------------------------------------
-__global__ void kernelRenderCircles(int *cudaDeviceHashmap, int *cudaDevice_numCircles_per_particle) {
+// __global__ void kernelRenderCircles(int *cudaDeviceHashmap, int *cudaDevice_numCircles_per_particle) {
 
-    int pixelX = blockIdx.x * blockDim.x + threadIdx.x;
-    int pixelY = blockIdx.y * blockDim.y + threadIdx.y;
+//     int pixelX = blockIdx.x * blockDim.x + threadIdx.x;
+//     int pixelY = blockIdx.y * blockDim.y + threadIdx.y;
 
-    int imagewidth = cuConstRendererParams.imageWidth;
-    int imageheight = cuConstRendererParams.imageHeight;
+//     int imagewidth = cuConstRendererParams.imageWidth;
+//     int imageheight = cuConstRendererParams.imageHeight;
 
-    int flattened_index = pixelY * imagewidth + pixelX;
+//     int flattened_index = pixelY * imagewidth + pixelX;
 
-    if ((pixelX >= imagewidth || pixelY >= imageheight) || cudaDevice_numCircles_per_particle[flattened_index] == 0)
-        return;
+//     if ((pixelX >= imagewidth || pixelY >= imageheight) || cudaDevice_numCircles_per_particle[flattened_index] == 0)
+//         return;
 
-    float invWidth = 1.f / imagewidth;
-    float invHeight = 1.f / imageheight;
+//     float invWidth = 1.f / imagewidth;
+//     float invHeight = 1.f / imageheight;
 
-    float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(pixelX) + 0.5f),
-                                                 invHeight * (static_cast<float>(pixelY) + 0.5f));
-    float4* imgPtr = (float4*)(&cuConstRendererParams.imageData[4 * (pixelY * imagewidth + pixelX)]); 
+//     float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(pixelX) + 0.5f),
+//                                                  invHeight * (static_cast<float>(pixelY) + 0.5f));
+//     float4* imgPtr = (float4*)(&cuConstRendererParams.imageData[4 * (pixelY * imagewidth + pixelX)]); 
 
-    for (int idx=0; idx < cudaDevice_numCircles_per_particle[flattened_index]; idx++) {
-        int circleIndex = cudaDeviceHashmap[flattened_index * cuConstRendererParams.numCircles + idx];
-        int index3 = 3 * circleIndex;
+//     for (int idx=0; idx < cudaDevice_numCircles_per_particle[flattened_index]; idx++) {
+//         int circleIndex = cudaDeviceHashmap[flattened_index * cuConstRendererParams.numCircles + idx];
+//         int index3 = 3 * circleIndex;
 
-        float3 p = *(float3*)(&cuConstRendererParams.position[index3]);
-        shadePixel(circleIndex, pixelCenterNorm, p, imgPtr);
-    }
+//         float3 p = *(float3*)(&cuConstRendererParams.position[index3]);
+//         shadePixel(circleIndex, pixelCenterNorm, p, imgPtr);
+//     }
 
-    // int index3 = 3 * index;
-
-    // // read position and radius
-    // float3 p = *(float3*)(&cuConstRendererParams.position[index3]);
-    // float  rad = cuConstRendererParams.radius[index];
-
-    // // compute the bounding box of the circle. The bound is in integer
-    // // screen coordinates, so it's clamped to the edges of the screen.
-    // short imageWidth = cuConstRendererParams.imageWidth;
-    // short imageHeight = cuConstRendererParams.imageHeight;
-    // short minX = static_cast<short>(imageWidth * (p.x - rad));
-    // short maxX = static_cast<short>(imageWidth * (p.x + rad)) + 1;
-    // short minY = static_cast<short>(imageHeight * (p.y - rad));
-    // short maxY = static_cast<short>(imageHeight * (p.y + rad)) + 1;
-
-    // // a bunch of clamps.  Is there a CUDA built-in for this?
-    // short screenMinX = (minX > 0) ? ((minX < imageWidth) ? minX : imageWidth) : 0;
-    // short screenMaxX = (maxX > 0) ? ((maxX < imageWidth) ? maxX : imageWidth) : 0;
-    // short screenMinY = (minY > 0) ? ((minY < imageHeight) ? minY : imageHeight) : 0;
-    // short screenMaxY = (maxY > 0) ? ((maxY < imageHeight) ? maxY : imageHeight) : 0;
-
-    // float invWidth = 1.f / imageWidth;
-    // float invHeight = 1.f / imageHeight;
-
-    // // for all pixels in the bonding box
-    // for (int pixelY=screenMinY; pixelY<screenMaxY; pixelY++) {
-    //     float4* imgPtr = (float4*)(&cuConstRendererParams.imageData[4 * (pixelY * imageWidth + screenMinX)]);
-    //     for (int pixelX=screenMinX; pixelX<screenMaxX; pixelX++) {
-    //         float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(pixelX) + 0.5f),
-    //                                              invHeight * (static_cast<float>(pixelY) + 0.5f));
-    //         shadePixel(index, pixelCenterNorm, p, imgPtr);
-    //         imgPtr++;
-    //     }
-    // }
-}
+// }
 // --------------------------------------------------------------- Modified Code ---------------------------------------------------------------
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -788,6 +754,20 @@ __global__ void print_kernel_cell_circle(int *cudaDeviceHashmap) {
     printf("-----------------\n\n");
 }
 
+__global__ void print_kernel_flat(int *cudaDeviceHashmap) {
+
+    int numCellsX = cuConstRendererParams.imageWidth / GRID_SIZE;
+    int numCellsY = cuConstRendererParams.imageHeight / GRID_SIZE;
+
+    int length = numCellsX * numCellsY * cuConstRendererParams.numCircles;
+    printf("-----------------\n");
+    for(int i=0; i<length; i++){
+        printf("%d, ", cudaDeviceHashmap[i]);
+    }
+    printf("\n");
+    printf("-----------------\n\n");
+}
+
 __global__ void print_kernel_condensed(int *cudaDeviceHashmap, int* cudaDevice_numGrids) {
 
     int numCellsX = cuConstRendererParams.imageWidth / GRID_SIZE;
@@ -802,6 +782,25 @@ __global__ void print_kernel_condensed(int *cudaDeviceHashmap, int* cudaDevice_n
             if(j!=0 && cudaDeviceHashmap[i * cuConstRendererParams.numCircles + j] <= cudaDeviceHashmap[i * cuConstRendererParams.numCircles + j-1])
                 break;
             printf("%d, ", cudaDeviceHashmap[i * cuConstRendererParams.numCircles + j]);
+        }
+        printf("\n\n");
+    }
+    printf("-----------------\n\n");
+}
+
+__global__ void print_kernel_ultimate_condensed(int *cudaDevice_Cell_Circle_Hashmap_condensed, int* cudaDevice_condensed_Hashmap_startIdx, int *cudaDevice_condensed_Hashmap_endIdx, int *numCells_in_Circles) {
+
+    int numCellsX = cuConstRendererParams.imageWidth / GRID_SIZE;
+    int numCellsY = cuConstRendererParams.imageHeight / GRID_SIZE;
+
+    int length = numCellsX * numCellsY;
+    printf("Printing Condensed Hashmap : \n");
+    printf("-----------------\n");
+    for(int i=0; i<length; i++){
+        printf("Grid : %d \n", i);
+        printf("StartIdx : %d | EndIdx : %d | Circle : \n", cudaDevice_condensed_Hashmap_startIdx[i], cudaDevice_condensed_Hashmap_endIdx[i]);
+        for(int j=cudaDevice_condensed_Hashmap_startIdx[i]; j<cudaDevice_condensed_Hashmap_endIdx[i]; j++) {
+            printf("%d, ", cudaDevice_Cell_Circle_Hashmap_condensed[j]);
         }
         printf("\n\n");
     }
@@ -877,31 +876,57 @@ __global__ void kernelCreate_Cell_Circle_Mapping(int *cudaDevice_Circle_Cell_Has
     }
 }
 
-__global__ void kernelCreate_Condensed_Hashmap(int* cudaDevice_Circle_Cell_Hashmap, int* cudaDevice_Cell_Circle_Hashmap, int* cudaDevice_Cell_Circle_Hashmap_condensed) {
-    int circleIndex = blockIdx.x * blockDim.x + threadIdx.x;
-    if(circleIndex < cuConstRendererParams.numCircles) {
-        int length = cuConstRendererParams.numCellsY * cuConstRendererParams.numCellsX;
-        for(int i=0; i < (length); i++) {
-            if(cudaDevice_Cell_Circle_Hashmap[i * cuConstRendererParams.numCircles + circleIndex]) {
-                int gridNum = i * cuConstRendererParams.numCircles;
-                cudaDevice_Cell_Circle_Hashmap_condensed[gridNum + cudaDevice_Circle_Cell_Hashmap[gridNum + circleIndex]] = circleIndex;
-                // cudaDevice_numGrids[i] = cudaDevice_Circle_Cell_Hashmap[gridNum + circleIndex] + 1;
-            }
+// __global__ void kernelCreate_Condensed_Hashmap(int* cudaDevice_Circle_Cell_Hashmap, int* cudaDevice_Cell_Circle_Hashmap, int* cudaDevice_Cell_Circle_Hashmap_condensed) {
+//     int circleIndex = blockIdx.x * blockDim.x + threadIdx.x;
+//     if(circleIndex < cuConstRendererParams.numCircles) {
+//         int length = cuConstRendererParams.numCellsY * cuConstRendererParams.numCellsX;
+//         for(int i=0; i < (length); i++) {
+//             if(cudaDevice_Cell_Circle_Hashmap[i * cuConstRendererParams.numCircles + circleIndex]) {
+//                 int gridNum = i * cuConstRendererParams.numCircles;
+//                 cudaDevice_Cell_Circle_Hashmap_condensed[gridNum + cudaDevice_Circle_Cell_Hashmap[gridNum + circleIndex]] = circleIndex;
+//                 // cudaDevice_numGrids[i] = cudaDevice_Circle_Cell_Hashmap[gridNum + circleIndex] + 1;
+//             }
+//         }
+//     }
+
+// }
+
+__global__ void kernelCreate_Condensed_Hashmap(int* cudaDevice_Circle_Cell_Hashmap, int* cudaDevice_Cell_Circle_Hashmap, int* cudaDevice_Cell_Circle_Hashmap_condensed, int* cudaDevice_CellID) {
+    int hashmapIndex = blockIdx.x * blockDim.x + threadIdx.x;
+    if(hashmapIndex < cuConstRendererParams.numCircles * cuConstRendererParams.numCellsX * cuConstRendererParams.numCellsY) {
+       if(cudaDevice_Cell_Circle_Hashmap[hashmapIndex]) {
+            cudaDevice_Cell_Circle_Hashmap_condensed[cudaDevice_Circle_Cell_Hashmap[hashmapIndex]] = hashmapIndex % cuConstRendererParams.numCircles;
+            cudaDevice_CellID[cudaDevice_Circle_Cell_Hashmap[hashmapIndex]] = hashmapIndex / cuConstRendererParams.numCircles;
+       }
+    }
+
+}
+
+__global__ void kernelCompute_numCells_in_Circles(int* cudaDevice_Cell_Circle_Hashmap, int* cudaDevice_exclusive_scan_output, int* numCells_in_Circles) {
+    int hashmapIndex = threadIdx.x;
+    int length = cuConstRendererParams.numCircles * cuConstRendererParams.numCellsX * cuConstRendererParams.numCellsY;
+    *numCells_in_Circles = cudaDevice_exclusive_scan_output[length-1] + cudaDevice_Cell_Circle_Hashmap[length-1];
+    // printf("---> TID : %d | NumCells in Circles : %d \n", hashmapIndex, *numCells_in_Circles);
+}
+
+__global__ void kernelCreate_Condensed_Hashmap_Start_End_Idx(int* cudaDevice_CellID, int* cudaDevice_condensed_Hashmap_startIdx, int* cudaDevice_condensed_Hashmap_endIdx, int* numCells_in_Circles) {
+    int hashmapIndex = blockIdx.x * blockDim.x + threadIdx.x;
+    if(hashmapIndex < *numCells_in_Circles) {
+        // printf("TID : %d | NumCells in Circles : %d \n\n", hashmapIndex, *numCells_in_Circles);
+        int this_cell = cudaDevice_CellID[hashmapIndex];
+        if(hashmapIndex == 0) {
+            cudaDevice_condensed_Hashmap_startIdx[this_cell] = 0;
+        } else if (this_cell != cudaDevice_CellID[hashmapIndex - 1]) {
+            cudaDevice_condensed_Hashmap_startIdx[this_cell] = hashmapIndex;
+            cudaDevice_condensed_Hashmap_endIdx[cudaDevice_CellID[hashmapIndex - 1]] = hashmapIndex;
+        }
+        if(hashmapIndex == *numCells_in_Circles - 1) {
+            cudaDevice_condensed_Hashmap_endIdx[this_cell] = hashmapIndex + 1;
         }
     }
-
 }
 
-__global__ void kernelCreate_NumCircles_per_Grid(int* cudaDevice_Circle_Cell_Hashmap, int* cudaDevice_numGrids) {
-    int gridIdx = blockIdx.x * blockDim.x + threadIdx.x;
-    int length = cuConstRendererParams.numCellsX * cuConstRendererParams.numCellsY;
-    if(gridIdx < length) {
-        cudaDevice_numGrids[gridIdx] = cudaDevice_Circle_Cell_Hashmap[gridIdx * cuConstRendererParams.numCircles + cuConstRendererParams.numCircles - 1] + 1;
-    }
-
-}
-
-__global__ void kernelRenderCircles(int* cudaDevice_Cell_Circle_Hashmap_condensed) {
+__global__ void kernelRenderCircles(int* cudaDevice_Cell_Circle_Hashmap_condensed, int* cudaDevice_condensed_Hashmap_startIdx, int* cudaDevice_condensed_Hashmap_endIdx) {
     int pixelX = blockIdx.x * blockDim.x + threadIdx.x;
     int pixelY = blockIdx.y * blockDim.y + threadIdx.y;
 
@@ -912,6 +937,8 @@ __global__ void kernelRenderCircles(int* cudaDevice_Cell_Circle_Hashmap_condense
         return;
 
     bool write_flag = false;
+
+    // extern __shared__ float sharedArray[];
     // int flattened_index = pixelY * imagewidth + pixelX;
 
     // printf("Flattened Index : %d \n", flattened_index);
@@ -933,12 +960,12 @@ __global__ void kernelRenderCircles(int* cudaDevice_Cell_Circle_Hashmap_condense
     
     // int pixel_inside_circle_index = 0;
 
-    for (int i=0; i < cuConstRendererParams.numCircles; i++) {
+    for (int i=cudaDevice_condensed_Hashmap_startIdx[flattened_gridIndex]; i < cudaDevice_condensed_Hashmap_endIdx[flattened_gridIndex]; i++) {
 
-        if(i!=0 && cudaDevice_Cell_Circle_Hashmap_condensed[flattened_gridIndex * cuConstRendererParams.numCircles + i] <= cudaDevice_Cell_Circle_Hashmap_condensed[flattened_gridIndex * cuConstRendererParams.numCircles + i-1])
-            break;
+        // if(i!=0 && cudaDevice_Cell_Circle_Hashmap_condensed[flattened_gridIndex * cuConstRendererParams.numCircles + i] <= cudaDevice_Cell_Circle_Hashmap_condensed[flattened_gridIndex * cuConstRendererParams.numCircles + i-1])
+        //     break;
         
-        int circleIndex = cudaDevice_Cell_Circle_Hashmap_condensed[flattened_gridIndex * cuConstRendererParams.numCircles + i];
+        int circleIndex = cudaDevice_Cell_Circle_Hashmap_condensed[i];
 
         float3 p = *(float3*)(&cuConstRendererParams.position[circleIndex * 3]);
         float  rad = cuConstRendererParams.radius[circleIndex];
@@ -1085,6 +1112,18 @@ CudaRenderer::render() {
 
     int* cudaDevice_Cell_Circle_Hashmap_condensed;
     cudaCheckError(cudaMalloc(&cudaDevice_Cell_Circle_Hashmap_condensed, sizeof(int) * numCircles *  numGrids));
+
+    int* numCells_in_Circles;
+    cudaCheckError(cudaMalloc(&numCells_in_Circles, sizeof(int)));
+
+    int* cudaDevice_CellID;
+    cudaCheckError(cudaMalloc(&cudaDevice_CellID, sizeof(int) * numCircles *  numGrids));
+
+    int* cudaDevice_condensed_Hashmap_startIdx;
+    cudaCheckError(cudaMalloc(&cudaDevice_condensed_Hashmap_startIdx, sizeof(int) *  numGrids));
+
+    int* cudaDevice_condensed_Hashmap_endIdx;
+    cudaCheckError(cudaMalloc(&cudaDevice_condensed_Hashmap_endIdx, sizeof(int) *  numGrids));
     
 
     dim3 blockDim(16, 16, 1);
@@ -1102,7 +1141,7 @@ CudaRenderer::render() {
         kernelCreate_Circle_Cell_Mapping<<<blocks, num_threads>>>(cudaDevice_Circle_Cell_Hashmap);
         cudaCheckError(cudaDeviceSynchronize());
         double endTime1 = CycleTimer::currentSeconds();
-        printf( " \n ");
+        printf( " \n");
         printf("kernelCreate_Circle_Cell_Mapping -- Time : %f \n", endTime1 - startTime1);
 
         // print_kernel_circle_cell<<<1, 1>>>(cudaDevice_Circle_Cell_Hashmap);
@@ -1113,7 +1152,6 @@ CudaRenderer::render() {
         kernelCreate_Cell_Circle_Mapping<<<blocks, num_threads>>>(cudaDevice_Circle_Cell_Hashmap, cudaDevice_Cell_Circle_Hashmap);
         cudaCheckError(cudaDeviceSynchronize());
         double endTime2 = CycleTimer::currentSeconds();
-
         printf("kernelCreate_Cell_Circle_Mapping -- Time : %f \n", endTime2 - startTime2);
 
         // print_kernel_cell_circle<<<1, 1>>>(cudaDevice_Cell_Circle_Hashmap);
@@ -1129,53 +1167,45 @@ CudaRenderer::render() {
         //     thrust::device_ptr<int> d_input_start(cudaDevice_Cell_Circle_Hashmap + i * numCircles);
         //     // Reusing "cudaDevice_Circle_Cell_Hashmap"
         //     thrust::device_ptr<int> d_output_start(cudaDevice_Circle_Cell_Hashmap + i * numCircles);
-        //     thrust::exclusive_scan(d_input_start, d_input_start + numCircles, d_output_start);
+        //     thrust::exclusive_scan(d_input_start, d_input_start + numCellsX * numCellsY * numCircles, d_output_start);
         // }
-        // cudaCheckError(cudaDeviceSynchronize());
-        const int NUM_STREAMS = 1; // Adjust based on your hardware and workload
-        cudaStream_t streams[NUM_STREAMS];
-        for (int i = 0; i < NUM_STREAMS; i++) {
-            cudaStreamCreate(&streams[i]);
-        }
-
-        int cellsPerStream = (numCellsX * numCellsY + NUM_STREAMS - 1) / NUM_STREAMS;
-
-        for (int streamIdx = 0; streamIdx < NUM_STREAMS; streamIdx++) {
-            int startCell = streamIdx * cellsPerStream;
-            int endCell = min((streamIdx + 1) * cellsPerStream, numCellsX * numCellsY);
-
-            for (int i = startCell; i < endCell; i++) {
-                thrust::device_ptr<int> d_input_start(cudaDevice_Cell_Circle_Hashmap + i * numCircles);
-                thrust::device_ptr<int> d_output_start(cudaDevice_Circle_Cell_Hashmap + i * numCircles);
-
-                // Use CUDA policy to specify the stream
-                auto policy = thrust::cuda::par.on(streams[streamIdx]);
-                thrust::exclusive_scan(policy, d_input_start, d_input_start + numCircles, d_output_start);
-            }
-        }
-
-        // Optional: Wait for all streams to complete
-        for (int i = 0; i < NUM_STREAMS; i++) {
-            cudaStreamSynchronize(streams[i]);
-        }
-
-        // Clean up streams
-        for (int i = 0; i < NUM_STREAMS; i++) {
-            cudaStreamDestroy(streams[i]);
-        }
+        thrust::device_ptr<int> d_input_start(cudaDevice_Cell_Circle_Hashmap);
+        thrust::device_ptr<int> d_output_start(cudaDevice_Circle_Cell_Hashmap);
+        thrust::exclusive_scan(d_input_start, d_input_start + numCellsX * numCellsY * numCircles, d_output_start);
+        cudaCheckError(cudaDeviceSynchronize());
         double endTime3 = CycleTimer::currentSeconds();
-
         printf("exclusive_scan -- Time : %f \n", endTime3 - startTime3);
 
         // print_kernel_cell_circle<<<1, 1>>>(cudaDevice_Circle_Cell_Hashmap);
         // cudaCheckError(cudaDeviceSynchronize());
 
         double startTime4 = CycleTimer::currentSeconds();
-        kernelCreate_Condensed_Hashmap<<<blocks, num_threads>>>(cudaDevice_Circle_Cell_Hashmap, cudaDevice_Cell_Circle_Hashmap, cudaDevice_Cell_Circle_Hashmap_condensed);
+        int num_threads_condensedKernel = std::min(THREADS_PER_BLOCK, numCircles * numGrids);
+        int blocks_condensedKernel = (numCircles * numGrids + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+        kernelCreate_Condensed_Hashmap<<<blocks_condensedKernel, num_threads_condensedKernel>>>(cudaDevice_Circle_Cell_Hashmap, cudaDevice_Cell_Circle_Hashmap, cudaDevice_Cell_Circle_Hashmap_condensed, cudaDevice_CellID);
         cudaCheckError(cudaDeviceSynchronize());
         double endTime4 = CycleTimer::currentSeconds();
-
         printf("kernelCreate_Condensed_Hashmap -- Time : %f \n", endTime4 - startTime4);
+
+        // printf("Printing CELLID \n");
+        // print_kernel_flat<<<1, 1>>>(cudaDevice_CellID);
+        // cudaCheckError(cudaDeviceSynchronize());
+
+        // printf("Printing Everything in Condensed \n");
+        // print_kernel_flat<<<1, 1>>>(cudaDevice_Cell_Circle_Hashmap_condensed);
+        // cudaCheckError(cudaDeviceSynchronize());
+
+        kernelCompute_numCells_in_Circles<<<1, 1>>>(cudaDevice_Cell_Circle_Hashmap, cudaDevice_Circle_Cell_Hashmap, numCells_in_Circles);
+        cudaCheckError(cudaDeviceSynchronize());
+
+        double startTime6 = CycleTimer::currentSeconds();
+        kernelCreate_Condensed_Hashmap_Start_End_Idx<<<blocks_condensedKernel, num_threads_condensedKernel>>>(cudaDevice_CellID, cudaDevice_condensed_Hashmap_startIdx, cudaDevice_condensed_Hashmap_endIdx, numCells_in_Circles);
+        cudaCheckError(cudaDeviceSynchronize());
+        double endTime6 = CycleTimer::currentSeconds();
+        printf("kernelCreate_Condensed_Hashmap_Start_End_Idx -- Time : %f \n", endTime6 - startTime6);
+
+        // print_kernel_ultimate_condensed<<<1, 1>>>(cudaDevice_Cell_Circle_Hashmap_condensed, cudaDevice_condensed_Hashmap_startIdx, cudaDevice_condensed_Hashmap_endIdx, numCells_in_Circles);
+        // cudaCheckError(cudaDeviceSynchronize());
 
         // num_threads = std::min(THREADS_PER_BLOCK, numGrids);
         // blocks = (numGrids + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
@@ -1187,12 +1217,12 @@ CudaRenderer::render() {
         // cudaCheckError(cudaDeviceSynchronize());
 
         double startTime5 = CycleTimer::currentSeconds();
-        kernelRenderCircles<<<gridDim, blockDim>>>(cudaDevice_Cell_Circle_Hashmap_condensed);
+        kernelRenderCircles<<<gridDim, blockDim>>>(cudaDevice_Cell_Circle_Hashmap_condensed, cudaDevice_condensed_Hashmap_startIdx, cudaDevice_condensed_Hashmap_endIdx);
         cudaCheckError(cudaDeviceSynchronize());
         double endTime5 = CycleTimer::currentSeconds();
-
         printf("kernelRenderCircles -- Time : %f \n", endTime5 - startTime5);
         printf( " \n ");
+
     } else {
         double startTime5 = CycleTimer::currentSeconds();
         kernelRenderCircles_lesserCircles<<<gridDim, blockDim>>>();
