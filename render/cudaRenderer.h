@@ -27,12 +27,8 @@ private:
     float* cudaDeviceRadius;
     float* cudaDeviceImageData;
 
-
-    // int* debug_map;
     int* cudaDevice_Circle_Cell_Hashmap;
     int* cudaDevice_Cell_Circle_Hashmap;
-    
-    // int* cudaDevice_numC;
 
 public:
 
